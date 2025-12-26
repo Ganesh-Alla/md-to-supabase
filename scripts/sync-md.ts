@@ -140,7 +140,7 @@ function logTask(task: {
     console.log("Registry Name        :", task.registryName);
     console.log("Name       :", task.name);
     console.log("Description :", task.description);
-    // console.log("Content     :", task.content);
+    console.log("Content     :", task.content);
     console.log("Version     :", task.version);
     console.log("================================================\n");
   }
