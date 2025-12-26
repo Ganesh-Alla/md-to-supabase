@@ -1,11 +1,14 @@
 import fs from "fs";
 import { execSync } from "child_process";
 import path from "path";
+import "dotenv/config";
+
 
 /* ---------------- Config ---------------- */
 
 const TASKS_DIR = "private_msb";
 const DRY_RUN = process.env.DRY_RUN === "true";
+
 
 /* ---------------- Git Diff ---------------- */
 
@@ -37,64 +40,111 @@ function getChangedMarkdownFiles(): string[] {
         .map((f) => `${TASKS_DIR}/${f}`);
     }
   }
+
+  function extractVersion(title: string): number {
+    const match = title.match(/\(v(\d+)\)/i);
+    return match ? parseFloat(match[1]) : 1.0;
+  }
+
+  function cleanTitle(title: string): string {
+    return title.replace(/\s*\(v\d+\)\s*/i, "").trim();
+  }
+
+  function toSlug(input: string): string {
+    return input
+      .toLowerCase()
+      .replace(/\(v\d+\)/i, (m) => m.replace(/[()]/g, "")) // (v2) → v2
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+  }
+
+  function extractRegistryName(filePath: string): string {
+    return filePath.split("/")[0];
+  }
+    
   
 
 /* ---------------- Markdown Parser ---------------- */
 
 interface ParsedMarkdown {
-  title: string;
-  description: string;
-}
-
-function parseMarkdown(content: string): ParsedMarkdown {
-  const lines = content.split("\n");
-
-  let title = "";
-  let description = "";
-  let readingDescription = false;
-
-  for (const line of lines) {
-    if (
-      line.startsWith("## ") &&
-      !line.toLowerCase().includes("description") &&
-      !title
-    ) {
-      title = line.replace("## ", "").trim();
-      continue;
-    }
-
-    if (line.toLowerCase().startsWith("## description")) {
-      readingDescription = true;
-      continue;
-    }
-
-    if (readingDescription) {
-      if (line.startsWith("## ")) break;
-      description += line + "\n";
-    }
+    name: string;
+    version: number;
+    description: string;
   }
+  
 
-  return {
-    title,
-    description: description.trim(),
-  };
-}
+  function parseMarkdown(content: string): ParsedMarkdown {
+    const lines = content.split("\n");
+  
+    let rawTitle = "";
+    let descriptionLines: string[] = [];
+    let inDescription = false;
+  
+    // ---- Title (H1 preferred) ----
+    for (const line of lines) {
+      if (line.startsWith("# ")) {
+        rawTitle = line.replace("# ", "").trim();
+        break;
+      }
+    }
+  
+    if (!rawTitle) {
+      for (const line of lines) {
+        if (
+          line.startsWith("## ") &&
+          !line.toLowerCase().includes("description")
+        ) {
+          rawTitle = line.replace("## ", "").trim();
+          break;
+        }
+      }
+    }
+  
+    // ---- Description ----
+    for (const line of lines) {
+      const trimmed = line.trim();
+  
+      if (trimmed.toLowerCase() === "## description") {
+        inDescription = true;
+        continue;
+      }
+  
+      if (inDescription && /^#{1,6}\s/.test(trimmed)) break;
+  
+      if (inDescription) descriptionLines.push(line);
+    }
+  
+    const version = extractVersion(rawTitle);
+    const clean = cleanTitle(rawTitle);
+    const slug = toSlug(rawTitle);
+  
+    return {
+        name: slug,
+      version,
+      description: descriptionLines.join("\n").trim(),
+    };
+  }
+  
+  
 
 /* ---------------- Logger ---------------- */
 
 function logTask(task: {
-  file: string;
-  title: string;
-  description: string;
-  content: string;
-}) {
-  console.log("\n================ TASK PREVIEW ================");
-  console.log("File        :", task.file);
-  console.log("Title       :", task.title);
-  console.log("Description :", task.description);
-  console.log("Content     :\n", task.content);
-  console.log("================================================\n");
-}
+    registryName: string;
+    name: string;
+    description: string;
+    content: string;
+    version: number;
+  }) {
+    console.log("\n================ TASK PREVIEW ================");
+    console.log("Registry Name        :", task.registryName);
+    console.log("Name       :", task.name);
+    console.log("Description :", task.description);
+    // console.log("Content     :", task.content);
+    console.log("Version     :", task.version);
+    console.log("================================================\n");
+  }
+  
 
 /* ---------------- Main ---------------- */
 
@@ -110,13 +160,16 @@ async function main() {
 
   for (const file of changedFiles) {
     const content = fs.readFileSync(file, "utf-8");
-    const { title, description } = parseMarkdown(content);
+    const {  description, version, name } = parseMarkdown(content);
+    const registryName = extractRegistryName(file);
 
+    
     logTask({
-      file,
-      title,
-      description,
-      content,
+      registryName: registryName,
+      name: name,
+      description: description,
+      content: content,
+      version: version,
     });
 
     if (DRY_RUN) {
