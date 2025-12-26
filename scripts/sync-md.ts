@@ -2,13 +2,17 @@ import fs from "fs";
 import { execSync } from "child_process";
 import path from "path";
 import "dotenv/config";
+import { createClient } from "@supabase/supabase-js";
 
 
 /* ---------------- Config ---------------- */
 
 const TASKS_DIR = "private_msb";
 const DRY_RUN = process.env.DRY_RUN === "true";
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
+const supabase = createClient(SUPABASE_URL as string, SUPABASE_KEY as string);
 
 /* ---------------- Git Diff ---------------- */
 
@@ -140,10 +144,52 @@ function logTask(task: {
     console.log("Registry Name        :", task.registryName);
     console.log("Name       :", task.name);
     console.log("Description :", task.description);
-    console.log("Content     :", task.content);
+    // console.log("Content     :", task.content);
     console.log("Version     :", task.version);
     console.log("================================================\n");
   }
+
+
+  async function insertTask(dbTask: {
+    registry_name: string;
+    name: string;
+    description: string;
+    content: string;
+    version: number;
+  }) {
+    if (process.env.DRY_RUN === "true") {
+      console.log("DRY RUN → Supabase insert payload:\n", dbTask);
+      return;
+    }
+  
+    const { data: registry, error: regErr } = await supabase
+      .from("registry")
+      .select("id")
+      .eq("name", dbTask.registry_name)
+      .single();
+  
+    if (regErr || !registry) {
+      throw new Error(`Registry not found: ${dbTask.registry_name}`);
+    }
+
+    console.log("Registry found:", registry);
+  
+    const { error } = await supabase.from("tasks").upsert(
+      {
+        registry_id: registry.id,
+        name: dbTask.name,
+        description: dbTask.description,
+        content: dbTask.content,
+        version: dbTask.version,
+      },
+      {
+        onConflict: "registry_id,name,version",
+      }
+    );
+  
+    if (error) throw error;
+  }
+  
   
 
 /* ---------------- Main ---------------- */
@@ -164,17 +210,25 @@ async function main() {
     const registryName = extractRegistryName(file);
 
     
-    logTask({
-      registryName: registryName,
+    // logTask({
+    //   registryName: registryName,
+    //   name: name,
+    //   description: description,
+    //   content: content,
+    //   version: version,
+    // });
+
+    if (DRY_RUN) {
+      console.log("DRY RUN ENABLED → Skipping DB insert\n");
+    }
+
+    await insertTask({
+      registry_name: registryName,
       name: name,
       description: description,
       content: content,
       version: version,
     });
-
-    if (DRY_RUN) {
-      console.log("DRY RUN ENABLED → Skipping DB insert\n");
-    }
   }
 }
 
