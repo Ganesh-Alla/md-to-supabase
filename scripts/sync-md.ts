@@ -171,8 +171,6 @@ function logTask(task: {
     if (regErr || !registry) {
       throw new Error(`Registry not found: ${dbTask.registry_name}`);
     }
-
-    console.log("Registry found:", registry);
   
     const { error } = await supabase.from("tasks").upsert(
       {
@@ -188,6 +186,7 @@ function logTask(task: {
     );
   
     if (error) throw error;
+    console.log("Task inserted successfully", dbTask.name, dbTask.version);
   }
   
   
