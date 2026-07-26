@@ -181,7 +181,7 @@ function logTask(task: {
         version: dbTask.version,
       },
       {
-        onConflict: "registry_id,name,version",
+        onConflict: "registry_id,name",
       }
     );
   
